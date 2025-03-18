@@ -1,23 +1,20 @@
-#include <iostream>
-#include <vector>
+#include "attentionmechanism.hpp"
 #include <cmath>
-#include <cstdlib>
-#include <ctime>
-#include <unordered_map>
 #include <algorithm>
 #include <numeric>
-#include <string>
 #include <sstream>
 #include <iterator>
 #include <fstream>
-#include "./util.cpp"
 #include <chrono>
+#include "./util.cpp"
 
 using namespace std;
 
-// Softmax function to calculate attention weights
-// Reminder to self: softmax is a function that takes a vector of values and returns a vector of values that sum to 1
-vector<double> softmax(const vector<double>& x) {
+AttentionMechanism::AttentionMechanism() {
+    srand(time(0));
+}
+
+vector<double> AttentionMechanism::softmax(const vector<double>& x) {
     vector<double> exp_x(x.size());
     double max_x = *max_element(x.begin(), x.end());
 
@@ -34,8 +31,7 @@ vector<double> softmax(const vector<double>& x) {
     return exp_x;
 }
 
-// Encode words into vectors
-void createWordRepresentations(const vector<string>& sentences, unordered_map<string, int>& wordToIndex, unordered_map<int, string>& indexToWord, vector<vector<double>>& wordEmbeddings) {
+void AttentionMechanism::createWordRepresentations(const vector<string>& sentences) {
     for (const auto& sentence : sentences) {
         istringstream iss(sentence);
         string word;
@@ -52,11 +48,9 @@ void createWordRepresentations(const vector<string>& sentences, unordered_map<st
     }
 }
 
-// Calculate the self-attention of a node
-vector<double> calculateSelfAttention(const vector<double>& query, const vector<vector<double>>& keys, const vector<vector<double>>& values) {
+vector<double> AttentionMechanism::calculateSelfAttention(const vector<double>& query, const vector<vector<double>>& keys, const vector<vector<double>>& values) {
     vector<double> scores(keys.size());
 
-    // Take the dot product of the query with each key
     for (size_t i = 0; i < keys.size(); ++i) {
         scores[i] = inner_product(query.begin(), query.end(), keys[i].begin(), 0.0) / sqrt(keys[i].size());
     }
@@ -65,15 +59,12 @@ vector<double> calculateSelfAttention(const vector<double>& query, const vector<
     return attentionWeights;
 }
 
-// Predict next word with self-attention
-pair<string, vector<double>> predictNextWordWithSelfAttention(const string& currentWord, const vector<string>& contextWindow, const vector<string>& words, const vector<vector<double>>& wordEmbeddings, const unordered_map<string, int>& wordToIndex, const unordered_map<int, string>& indexToWord) {
-    
-    // Calculate the context embedding
+pair<string, vector<double>> AttentionMechanism::predictNextWordWithSelfAttention(const string& currentWord, const vector<string>& contextWindow, const vector<string>& words) {
     vector<vector<double>> contextEmbeddings;
     for (const auto& word : contextWindow) {
-if (wordToIndex.find(word) != wordToIndex.end()) {
-        contextEmbeddings.push_back(wordEmbeddings[wordToIndex.at(word)]);
-}
+        if (wordToIndex.find(word) != wordToIndex.end()) {
+            contextEmbeddings.push_back(wordEmbeddings[wordToIndex.at(word)]);
+        }
     }
 
     if (contextEmbeddings.empty()) {
@@ -81,7 +72,6 @@ if (wordToIndex.find(word) != wordToIndex.end()) {
         return {"", {}};
     }
 
-    // Calculate the query by using the same context embedding
     vector<double> query(contextEmbeddings[0].size(), 0.0);
     for (const auto& embedding : contextEmbeddings) {
         transform(query.begin(), query.end(), embedding.begin(), query.begin(), plus<double>());
@@ -92,10 +82,10 @@ if (wordToIndex.find(word) != wordToIndex.end()) {
 
     vector<vector<double>> keys, values;
     for (const auto& word : words) {
-    if (wordToIndex.find(word) != wordToIndex.end()) {
-        keys.push_back(wordEmbeddings[wordToIndex.at(word)]);
-        values.push_back(wordEmbeddings[wordToIndex.at(word)]);
-    }
+        if (wordToIndex.find(word) != wordToIndex.end()) {
+            keys.push_back(wordEmbeddings[wordToIndex.at(word)]);
+            values.push_back(wordEmbeddings[wordToIndex.at(word)]);
+        }
     }
 
     if (keys.empty() || values.empty()) {
@@ -110,7 +100,7 @@ if (wordToIndex.find(word) != wordToIndex.end()) {
     return {predictedWord, attentionWeights};
 }
 
-void saveQueriesKeysValues(const vector<double>& query, const vector<vector<double>>& keys, const vector<vector<double>>& values, const string& filename) {
+void AttentionMechanism::saveQueriesKeysValues(const vector<double>& query, const vector<vector<double>>& keys, const vector<vector<double>>& values, const string& filename) {
     ofstream outFile(filename);
     if (!outFile) {
         cerr << "Error: Could not open file " << filename << " for writing." << endl;
@@ -140,7 +130,7 @@ void saveQueriesKeysValues(const vector<double>& query, const vector<vector<doub
 }
 
 int main() {
-    srand(time(0));
+    AttentionMechanism attentionMechanism;
 
     auto start = chrono::high_resolution_clock::now();
 
@@ -153,18 +143,13 @@ int main() {
     if (!fileExists(outputFilename)) {
         cout << "Tokenizing text..." << endl;
         cleanText(inputFilename, outputFilename);
-        
     }
     vector<string> sentences = loadSentences(outputFilename);
 
-    unordered_map<string, int> wordToIndex;
-    unordered_map<int, string> indexToWord;
-    vector<vector<double>> wordEmbeddings;
+    attentionMechanism.createWordRepresentations(sentences);
 
-    createWordRepresentations(sentences, wordToIndex, indexToWord, wordEmbeddings);
-
-    string currentWord = "o";
-    int contextWindowSize = 3;  // Considering two words before the current word
+    string currentWord = "heavens";
+    int contextWindowSize = 3;
 
     for (const auto& sentence : sentences) {
         if (sentence.find(currentWord) == string::npos) {
@@ -179,7 +164,7 @@ int main() {
         int currentWordIndex = distance(words.begin(), it);
         vector<string> contextWindow(words.begin() + max(0, currentWordIndex - contextWindowSize), words.begin() + currentWordIndex);
 
-        auto [predictedWord, attentionProbabilities] = predictNextWordWithSelfAttention(currentWord, contextWindow, words, wordEmbeddings, wordToIndex, indexToWord);
+        auto [predictedWord, attentionProbabilities] = attentionMechanism.predictNextWordWithSelfAttention(currentWord, contextWindow, words);
 
         if (predictedWord.empty()) {
             continue;
@@ -198,7 +183,13 @@ int main() {
         }
         cout << "Predicted next word: " << predictedWord << endl;
 
-        // Save queries, keys, and values
+        // Update context window and current word
+        contextWindow.push_back(currentWord);
+        if (contextWindow.size() > contextWindowSize) {
+            contextWindow.erase(contextWindow.begin());
+        }
+        currentWord = predictedWord;
+
         vector<double> query(contextWindow.size(), 0.0);
         for (const auto& embedding : contextWindow) {
             transform(query.begin(), query.end(), embedding.begin(), query.begin(), plus<double>());
@@ -206,14 +197,7 @@ int main() {
         for (auto& val : query) {
             val /= contextWindow.size();
         }
-        vector<vector<double>> keys, values;
-        for (const auto& word : words) {
-            if (wordToIndex.find(word) != wordToIndex.end()) {
-                keys.push_back(wordEmbeddings[wordToIndex.at(word)]);
-                values.push_back(wordEmbeddings[wordToIndex.at(word)]);
-            }
-        }
-        saveQueriesKeysValues(query, keys, values, "queries_keys_values.txt");
+        
     }
 
     auto end = chrono::high_resolution_clock::now();
