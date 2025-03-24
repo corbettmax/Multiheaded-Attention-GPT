@@ -1,208 +1,218 @@
 #include "attentionmechanism.hpp"
-#include <cmath>
 #include <algorithm>
+#include <cmath>
 #include <numeric>
-#include <sstream>
-#include <iterator>
-#include <fstream>
-#include <chrono>
-#include "./util.cpp"
 
 using namespace std;
 
-AttentionMechanism::AttentionMechanism() {
-    srand(time(0));
+Linear::Linear(int in_features, int out_features)
+{
+    weights.resize(out_features, vector<double>(in_features));
+    biases.resize(out_features, 0.0);
+    initialize_weights();
 }
 
-vector<double> AttentionMechanism::softmax(const vector<double>& x) {
-    vector<double> exp_x(x.size());
-    double max_x = *max_element(x.begin(), x.end());
-
-    for (size_t i = 0; i < x.size(); ++i) {
-        exp_x[i] = exp(x[i] - max_x);
+vector<double> Linear::forward(const vector<double> &x)
+{
+    vector<double> output(weights.size(), 0.0);
+    for (size_t i = 0; i < weights.size(); ++i)
+    {
+        for (size_t j = 0; j < weights[0].size(); ++j)
+        {
+            output[i] += weights[i][j] * x[j];
+        }
+        output[i] += biases[i];
     }
-
-    double sum_exp_x = accumulate(exp_x.begin(), exp_x.end(), 0.0);
-
-    for (size_t i = 0; i < exp_x.size(); ++i) {
-        exp_x[i] /= sum_exp_x;
-    }
-
-    return exp_x;
+    return output;
 }
 
-void AttentionMechanism::createWordRepresentations(const vector<string>& sentences) {
-    for (const auto& sentence : sentences) {
-        istringstream iss(sentence);
-        string word;
-        while (iss >> word) {
-            if (wordToIndex.find(word) == wordToIndex.end()) {
-                int index = wordToIndex.size();
-                wordToIndex[word] = index;
-                indexToWord[index] = word;
-                vector<double> embedding(3);
-                generate(embedding.begin(), embedding.end(), []() { return static_cast<double>(rand()) / RAND_MAX; });
-                wordEmbeddings.push_back(embedding);
-            }
+vector<vector<vector<double>>> Linear::forward(const vector<vector<vector<double>>> &x)
+{
+    vector<vector<vector<double>>> output(x.size(), vector<vector<double>>(x[0].size(), vector<double>(weights.size(), 0.0)));
+    for (size_t i = 0; i < x.size(); ++i)
+    {
+        for (size_t j = 0; j < x[0].size(); ++j)
+        {
+            output[i][j] = forward(x[i][j]);
         }
+    }
+    return output;
+}
+
+void Linear::initialize_weights()
+{
+    random_device rd;
+    mt19937 gen(rd());
+    normal_distribution<> d(0.0, 0.02);
+    for (auto &row : weights)
+    {
+        generate(row.begin(), row.end(), [&]()
+                 { return d(gen); });
     }
 }
 
-vector<double> AttentionMechanism::calculateSelfAttention(const vector<double>& query, const vector<vector<double>>& keys, const vector<vector<double>>& values) {
-    vector<double> scores(keys.size());
+Dropout::Dropout(double p) : p(p) {}
 
-    for (size_t i = 0; i < keys.size(); ++i) {
-        scores[i] = inner_product(query.begin(), query.end(), keys[i].begin(), 0.0) / sqrt(keys[i].size());
+vector<double> Dropout::forward(const vector<double> &x)
+{
+    vector<double> output = x;
+    random_device rd;
+    mt19937 gen(rd());
+    bernoulli_distribution d(1.0 - p);
+    for (auto &val : output)
+    {
+        val *= d(gen);
+        val /= 1.0 - p;
     }
-
-    vector<double> attentionWeights = softmax(scores);
-    return attentionWeights;
+    return output;
 }
 
-pair<string, vector<double>> AttentionMechanism::predictNextWordWithSelfAttention(const string& currentWord, const vector<string>& contextWindow, const vector<string>& words) {
-    vector<vector<double>> contextEmbeddings;
-    for (const auto& word : contextWindow) {
-        if (wordToIndex.find(word) != wordToIndex.end()) {
-            contextEmbeddings.push_back(wordEmbeddings[wordToIndex.at(word)]);
-        }
+Head::Head(int head_size) : key(head_size, head_size), query(head_size, head_size), value(head_size, head_size), dropout(0.2) {}
+
+vector<double> Head::forward(const vector<double> &x)
+{
+    vector<double> k = key.forward(x);
+    vector<double> q = query.forward(x);
+    vector<double> v = value.forward(x);
+
+    double scale = 1.0 / sqrt(k.size());
+    vector<double> scores(k.size(), 0.0);
+    for (size_t i = 0; i < k.size(); ++i)
+    {
+        scores[i] = q[i] * k[i] * scale;
     }
 
-    if (contextEmbeddings.empty()) {
-        cerr << "Error: Context embeddings are empty." << endl;
-        return {"", {}};
+    double max_score = *max_element(scores.begin(), scores.end());
+    for (auto &score : scores)
+    {
+        score = exp(score - max_score);
+    }
+    double sum_scores = accumulate(scores.begin(), scores.end(), 0.0);
+    for (auto &score : scores)
+    {
+        score /= sum_scores;
     }
 
-    vector<double> query(contextEmbeddings[0].size(), 0.0);
-    for (const auto& embedding : contextEmbeddings) {
-        transform(query.begin(), query.end(), embedding.begin(), query.begin(), plus<double>());
-    }
-    for (auto& val : query) {
-        val /= contextEmbeddings.size();
+    vector<double> weighted_sum(v.size(), 0.0);
+    for (size_t i = 0; i < v.size(); ++i)
+    {
+        weighted_sum[i] = scores[i] * v[i];
     }
 
-    vector<vector<double>> keys, values;
-    for (const auto& word : words) {
-        if (wordToIndex.find(word) != wordToIndex.end()) {
-            keys.push_back(wordEmbeddings[wordToIndex.at(word)]);
-            values.push_back(wordEmbeddings[wordToIndex.at(word)]);
-        }
-    }
-
-    if (keys.empty() || values.empty()) {
-        cerr << "Error: Keys or values are empty." << endl;
-        return {"", {}};
-    }
-
-    vector<double> attentionWeights = calculateSelfAttention(query, keys, values);
-    int predictedIndex = distance(attentionWeights.begin(), max_element(attentionWeights.begin(), attentionWeights.end()));
-    string predictedWord = indexToWord.at(predictedIndex);
-
-    return {predictedWord, attentionWeights};
+    return dropout.forward(weighted_sum);
 }
 
-void AttentionMechanism::saveQueriesKeysValues(const vector<double>& query, const vector<vector<double>>& keys, const vector<vector<double>>& values, const string& filename) {
-    ofstream outFile(filename);
-    if (!outFile) {
-        cerr << "Error: Could not open file " << filename << " for writing." << endl;
-        return;
+MultiHeadAttention::MultiHeadAttention(int n_head, int head_size) : output_linear(n_head * head_size, n_head * head_size)
+{
+    for (int i = 0; i < n_head; ++i)
+    {
+        heads.push_back(Head(head_size));
     }
-
-    outFile << "Query:\n";
-    for (const auto& q : query) {
-        outFile << q << " ";
-    }
-    outFile << "\n\nKeys:\n";
-    for (const auto& key : keys) {
-        for (const auto& k : key) {
-            outFile << k << " ";
-        }
-        outFile << "\n";
-    }
-    outFile << "\nValues:\n";
-    for (const auto& value : values) {
-        for (const auto& v : value) {
-            outFile << v << " ";
-        }
-        outFile << "\n";
-    }
-
-    outFile.close();
 }
 
-int main() {
-    AttentionMechanism attentionMechanism;
-
-    auto start = chrono::high_resolution_clock::now();
-
-    string inputFilename = "./input.txt";
-    string outputFilename = "./output.txt";
-    if (!fileExists(inputFilename)) {
-        cerr << "Error: Input file does not exist." << endl;
-        return 1;
+vector<double> MultiHeadAttention::forward(const vector<double> &x)
+{
+    vector<double> concat_heads;
+    for (auto &head : heads)
+    {
+        vector<double> head_output = head.forward(x);
+        concat_heads.insert(concat_heads.end(), head_output.begin(), head_output.end());
     }
-    if (!fileExists(outputFilename)) {
-        cout << "Tokenizing text..." << endl;
-        cleanText(inputFilename, outputFilename);
+    return output_linear.forward(concat_heads);
+}
+
+LayerNorm::LayerNorm(int n_embd) : n_embd(n_embd)
+{
+    gamma.resize(n_embd, 1.0);
+    beta.resize(n_embd, 0.0);
+}
+
+vector<double> LayerNorm::forward(const vector<double> &x)
+{
+
+    double mean = accumulate(x.begin(), x.end(), 0.0) / x.size();
+    double variance = 0.0;
+    for (const auto &val : x)
+    {
+        variance += (val - mean) * (val - mean);
     }
-    vector<string> sentences = loadSentences(outputFilename);
+    variance /= x.size();
+    double stddev = sqrt(variance + 1e-5);
 
-    attentionMechanism.createWordRepresentations(sentences);
-
-    string currentWord = "heavens";
-    int contextWindowSize = 3;
-
-    for (const auto& sentence : sentences) {
-        if (sentence.find(currentWord) == string::npos) {
-            continue;
-        }
-        istringstream iss(sentence);
-        vector<string> words((istream_iterator<string>(iss)), istream_iterator<string>());
-        auto it = find(words.begin(), words.end(), currentWord);
-        if (it == words.end()) {
-            continue;
-        }
-        int currentWordIndex = distance(words.begin(), it);
-        vector<string> contextWindow(words.begin() + max(0, currentWordIndex - contextWindowSize), words.begin() + currentWordIndex);
-
-        auto [predictedWord, attentionProbabilities] = attentionMechanism.predictNextWordWithSelfAttention(currentWord, contextWindow, words);
-
-        if (predictedWord.empty()) {
-            continue;
-        }
-
-        cout << "\nGiven the word: " << currentWord << endl;
-        cout << "Context: ";
-        for (const auto& word : contextWindow) {
-            cout << word << " ";
-        }
-        cout << endl;
-        cout << "Sentence: " << sentence << endl;
-        cout << "Attention Probabilities:" << endl;
-        for (size_t i = 0; i < words.size(); ++i) {
-            cout << "\t" << words[i] << ": " << attentionProbabilities[i] << endl;
-        }
-        cout << "Predicted next word: " << predictedWord << endl;
-
-        // Update context window and current word
-        contextWindow.push_back(currentWord);
-        if (contextWindow.size() > contextWindowSize) {
-            contextWindow.erase(contextWindow.begin());
-        }
-        currentWord = predictedWord;
-
-        vector<double> query(contextWindow.size(), 0.0);
-        for (const auto& embedding : contextWindow) {
-            transform(query.begin(), query.end(), embedding.begin(), query.begin(), plus<double>());
-        }
-        for (auto& val : query) {
-            val /= contextWindow.size();
-        }
-        
+    vector<double> normalized(x.size());
+    for (size_t i = 0; i < x.size(); ++i)
+    {
+        normalized[i] = (x[i] - mean) / stddev;
     }
 
-    auto end = chrono::high_resolution_clock::now();
-    chrono::duration<double> elapsed = end - start;
-    cout << "Elapsed time: " << elapsed.count() << " seconds" << endl;
+    vector<double> output(x.size());
+    for (size_t i = 0; i < x.size(); ++i)
+    {
+        output[i] = gamma[i] * normalized[i] + beta[i];
+    }
+    return output;
+}
 
-    return 0;
+vector<vector<vector<double>>> LayerNorm::forward(const vector<vector<vector<double>>> &x)
+{
+    vector<vector<vector<double>>> output = x;
+    for (auto &batch : output)
+    {
+        for (auto &seq : batch)
+        {
+            seq = forward(seq);
+        }
+    }
+    return output;
+}
+
+FeedForward::FeedForward(int n_embd) : linear1(n_embd, 4 * n_embd), linear2(4 * n_embd, n_embd) {}
+
+vector<double> FeedForward::forward(const vector<double> &x)
+{
+    vector<double> hidden = linear1.forward(x);
+    for (auto &val : hidden)
+    {
+        val = max(0.0, val); // ReLU activation
+    }
+    return linear2.forward(hidden);
+}
+
+Block::Block(int n_embd, int n_head) : sa(n_head, n_embd / n_head), ffwd(n_embd), ln1(n_embd), ln2(n_embd) {}
+
+vector<double> Block::forward(const vector<double> &x)
+{
+    vector<double> x1 = ln1.forward(x);
+    vector<double> sa_output = sa.forward(x1);
+    vector<double> x2 = ln2.forward(x1);
+    vector<double> ffwd_output = ffwd.forward(x2);
+    vector<double> output(x.size());
+    for (size_t i = 0; i < x.size(); ++i)
+    {
+        output[i] = x[i] + sa_output[i] + ffwd_output[i];
+    }
+    return output;
+}
+
+vector<vector<double>> Block::forward(const vector<vector<double>> &x)
+{
+    vector<vector<double>> output = x;
+    for (auto &batch : output)
+    {
+        batch = forward(batch);
+    }
+    return output;
+}
+
+vector<vector<vector<double>>> Block::forward(const vector<vector<vector<double>>> &x)
+{
+    vector<vector<vector<double>>> output = x;
+    for (auto &batch : output)
+    {
+        for (auto &seq : batch)
+        {
+            seq = forward(seq);
+        }
+    }
+    return output;
 }

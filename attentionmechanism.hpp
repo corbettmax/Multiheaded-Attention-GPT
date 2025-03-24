@@ -1,19 +1,95 @@
-#include <iostream>
-#include <vector>
-#include <unordered_map>
-#include <string>
+#ifndef ATTENTIONMECHANISM_HPP
+#define ATTENTIONMECHANISM_HPP
 
-class AttentionMechanism {
+#include <vector>
+#include <random>
+
+using namespace std;
+
+class Linear
+{
 public:
-    AttentionMechanism();
-    std::vector<double> softmax(const std::vector<double>& x);
-    void createWordRepresentations(const std::vector<std::string>& sentences);
-    std::vector<double> calculateSelfAttention(const std::vector<double>& query, const std::vector<std::vector<double>>& keys, const std::vector<std::vector<double>>& values);
-    std::pair<std::string, std::vector<double>> predictNextWordWithSelfAttention(const std::string& currentWord, const std::vector<std::string>& contextWindow, const std::vector<std::string>& words);
-    void saveQueriesKeysValues(const std::vector<double>& query, const std::vector<std::vector<double>>& keys, const std::vector<std::vector<double>>& values, const std::string& filename);
+    Linear(int in_features, int out_features);
+    vector<double> forward(const vector<double> &x);
+    vector<vector<vector<double>>> forward(const vector<vector<vector<double>>> &x);
 
 private:
-    std::unordered_map<std::string, int> wordToIndex;
-    std::unordered_map<int, std::string> indexToWord;
-    std::vector<std::vector<double>> wordEmbeddings;
+    void initialize_weights();
+    vector<vector<double>> weights;
+    vector<double> biases;
 };
+
+class Dropout
+{
+public:
+    Dropout(double p);
+    vector<double> forward(const vector<double> &x);
+
+private:
+    double p;
+};
+
+class Head
+{
+public:
+    Head(int head_size);
+    vector<double> forward(const vector<double> &x);
+
+private:
+    Linear key;
+    Linear query;
+    Linear value;
+    Dropout dropout;
+};
+
+class MultiHeadAttention
+{
+public:
+    MultiHeadAttention(int n_head, int head_size);
+    vector<double> forward(const vector<double> &x);
+
+private:
+    vector<Head> heads;
+    Linear output_linear;
+};
+
+class LayerNorm
+{
+public:
+    LayerNorm(int n_embd);
+    vector<double> forward(const vector<double> &x);
+    vector<vector<vector<double>>> forward(const vector<vector<vector<double>>> &x);
+
+private:
+    int n_embd;
+    vector<double> gamma;
+    vector<double> beta;
+};
+
+class FeedForward
+{
+public:
+    FeedForward(int n_embd);
+    vector<double> forward(const vector<double> &x);
+
+private:
+    Linear linear1;
+    Linear linear2;
+};
+
+class Block
+{
+public:
+    Block(int n_embd, int n_head);
+    vector<double> forward(const vector<double> &x);
+    vector<vector<double>> forward(const vector<vector<double>> &x);
+    vector<vector<vector<double>>> forward(const vector<vector<vector<double>>> &x);
+
+private:
+    MultiHeadAttention sa;
+    FeedForward ffwd;
+    LayerNorm ln1;
+    LayerNorm ln2;
+};
+
+#endif // ATTENTIONMECHANISM_HPP
