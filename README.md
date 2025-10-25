@@ -17,9 +17,6 @@ A compact, readable implementation of a GPT-style autoregressive transformer wri
   - [Requirements](#requirements)
   - [Installation / Build](#installation--build)
   - [Training (example)](#training-example)
-  - [Sampling / inference (example)](#sampling--inference-example)
-- [Practical training tips](#practical-training-tips)
-- [Contributing](#contributing)
 - [Citing / license](#citing--license)
 - [References](#references)
 
@@ -102,12 +99,13 @@ After masking, softmax makes weights for future positions zero, enforcing causal
 ## Quick start (C++)
 
 ### Requirements
-
 - C++17 or newer compiler (g++ 9+, clang 10+, MSVC with C++17 support)
 - CMake 3.15+
 - Recommended system: Linux/macOS with sufficient RAM and a CUDA-capable GPU for training
 
 ### Installation / Build
+
+I have included the executable for Microsoft WSL but if needing to build from source:
 
 1. Build using CMake:
 
@@ -120,19 +118,10 @@ cmake -DCMAKE_BUILD_TYPE=Release ..
 cmake --build . --config Release -j$(nproc)
 ```
 
-CMake should locate LibTorch (TorchConfig.cmake) using CMAKE_PREFIX_PATH. If using CUDA, use the corresponding LibTorch CUDA package and a CUDA-capable compiler.
-
-Example minimal CMake snippet (already in repo's CMakeLists.txt typically):
-```cmake
-find_package(Torch REQUIRED)
-add_executable(train src/train.cpp src/model/transformer.cpp)
-target_link_libraries(train "${TORCH_LIBRARIES}")
-set_property(TARGET train PROPERTY CXX_STANDARD 17)
-```
-
 ### Training (example)
 
 Assuming a built `train` binary:
+(I Have not included a seperate binary but there is a commented-out section in main.cpp that covers it)
 
 ```bash
 # basic training run
@@ -147,40 +136,8 @@ Assuming a built `train` binary:
   --checkpoint_dir ../checkpoints
 ```
 
-Notes:
-- Checkpoints should be saved with torch::save (LibTorch) as .pt or .pth
 - If data preprocessing is easier in Python, you can preprocess datasets to a binary token-id format and load them in C++
-
-### Sampling / inference (example)
-
-After training, use the `sample` binary for generation:
-
-```bash
-./sample \
-  --checkpoint ../checkpoints/ckpt_best.pt \
-  --prompt "Once upon a time" \
-  --max_new_tokens 100 \
-  --temperature 0.9 \
-  --top_k 40
-```
-
-Sampling parameters:
-- temperature: >1 more random, <1 more deterministic
-- top_k / top_p: sampling truncation strategies (nucleus/top-p)
-
----
-
-## Practical training tips (C++ / LibTorch)
-
-- Use AdamW optimizer and implement learning rate schedules (warmup + decay). LibTorch supports optim::AdamW.
-- Use gradient clipping (e.g., clip_norm=1.0).
-- Use mixed precision: LibTorch supports autocast and GradScaler (similar to PyTorch AMP) for FP16 training on CUDA.
-- Use DataLoader-style batching; implement a fast token-id dataset loader in C++ or load pre-tokenized tensors saved from Python.
-- If GPU memory is limited: reduce batch size, use gradient accumulation, or use model parallelism/sharding libraries if needed.
-- Profile CPU/GPU usage and optimize tensor allocations: reuse buffers, avoid unnecessary copies, and use in-place ops where safe.
-
----
-
+  
 ## Citing / license
 
 If you use this work in research, please cite the original Transformer paper:
