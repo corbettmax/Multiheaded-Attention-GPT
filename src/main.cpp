@@ -14,8 +14,8 @@ int main()
 
     auto start = chrono::high_resolution_clock::now();
 
-    string inputFilename = "./input.txt";
-    string outputFilename = "./output.txt";
+    string inputFilename = "../training/input.txt";
+    string outputFilename = "../output.txt";
     if (!fileExists(inputFilename))
     {
         //cerr << "Error: Input file does not exist." << endl;
