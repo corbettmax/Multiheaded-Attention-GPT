@@ -1,33 +1,9 @@
+...existing code...
 # Multiheaded-Attention-GPT (C++)
 
-A compact, readable implementation of a GPT-style autoregressive transformer written with C++ (LibTorch) that highlights multi-headed (scaled dot-product) attention. This repository is intended for learning, experimentation, and small-scale training or inference with transformer language models implemented in modern C++.
+A compact, readable, educational implementation of a small GPT‑style transformer written in modern C++ (no LibTorch). This repository is intended for learning, profiling, and small-scale inference experiments — not production training.
 
 ---
-
-## Table of contents
-
-- [Overview](#overview)
-- [Paper & background](#paper--background)
-- [How attention works (summary)](#how-attention-works-summary)
-  - [Scaled dot-product attention (C++)](#scaled-dot-product-attention-c)
-  - [Multi‑head attention](#multi-head-attention)
-  - [Causal (masked) attention for GPT](#causal-masked-attention-for-gpt)
-- [Repository structure](#repository-structure)
-- [Quick start (C++)](#quick-start-c)
-  - [Requirements](#requirements)
-  - [Installation / Build](#installation--build)
-  - [Training (example)](#training-example)
-- [Citing / license](#citing--license)
-- [References](#references)
-
----
-
-## Overview
-
-This project implements a small GPT-like Transformer in C++ that demonstrates the multi-headed attention mechanism and how it's used for autoregressive language modeling. The code emphasizes clarity and pedagogy, making it suitable for learning, profiling, visualizing attention, and iterating on small experiments in C++.
-
----
-
 ## Paper & background
 
 The transformer architecture that introduced attention as the primary building block for sequence modeling is:
@@ -39,118 +15,172 @@ Read that paper for the full derivation and original experiments. The explanatio
 
 ---
 
-## How attention works (summary)
+## What this repository actually contains
 
-At a high level, attention allows each token to gather information from other tokens in the sequence by computing similarity scores between tokens.
-
-### Scaled dot-product attention (C++ / LibTorch)
-
-Given query (Q), key (K) and value (V) tensors with shape [batch, seq_len, d_k], scaled dot-product attention in LibTorch-like C++ looks like:
-
-```cpp
-// Q, K, V are torch::Tensor with shape [B, L, D]
-torch::Tensor scaled_dot_product_attention(const torch::Tensor& Q,
-                                           const torch::Tensor& K,
-                                           const torch::Tensor& V) {
-    // scores: [B, L_q, L_k]
-    auto scores = torch::matmul(Q, K.transpose(-2, -1));
-    // scale
-    double dk = static_cast<double>(Q.size(-1));
-    scores = scores / std::sqrt(dk);
-    // softmax over keys dimension
-    auto weights = torch::softmax(scores, -1);
-    // output: [B, L_q, D_v]
-    return torch::matmul(weights, V);
-}
-```
-
-Scaling by sqrt(d_k) prevents dot products from growing too large when the dimensionality increases, stabilizing softmax and gradients.
-
-### Multi‑head attention
-
-Instead of computing one attention, the model projects Q, K, V into h subspaces (heads), computes attention in each, then concatenates and projects back:
-
-- For head i:
-  - Qi = Q @ W_i^Q
-  - Ki = K @ W_i^K
-  - Vi = V @ W_i^V
-  - head_i = Attention(Qi, Ki, Vi)
-- Concatenate heads: concat = [head_1, ..., head_h]
-- Final projection: output = concat @ W^O
-
-In C++ (LibTorch) this is implemented with linear layers and view/reshape operations for efficiency (split into heads using reshape and transpose).
-
-Intuition: different heads can focus on local syntax, long-range dependencies, copying, or other features simultaneously.
-
-### Causal (masked) attention for GPT
-
-GPT-style models are autoregressive: when predicting token t, the model should only attend to positions <= t. This is done by applying a triangular mask to attention scores before softmax:
-
-```cpp
-// create causal mask [L, L] with 0 for allowed, -inf for disallowed
-auto mask = torch::triu(torch::ones({L, L}, torch::kBool), 1);
-scores.masked_fill_(mask.unsqueeze(0).unsqueeze(1), -INFINITY);
-```
-
-After masking, softmax makes weights for future positions zero, enforcing causality during training and sampling.
+- Pure C++ implementation of Transformer components:
+  - token/position embeddings, multi‑head scaled dot‑product attention, feed‑forward, layer norm, linear layers
+  - simple utilities for batching, token encoding/decoding, and small matrix ops
+- CPU-only code using std::vector; optional OpenMP pragmas present for parallelism.
+- A forward-only model and generation routine. Backprop/optimizer (full training) is not implemented.
+- Small example entrypoint in main.cpp demonstrating model construction and generation.
 
 ---
 
-## Quick start (C++)
+## Repository structure (key files)
 
-### Requirements
-- C++17 or newer compiler (g++ 9+, clang 10+, MSVC with C++17 support)
-- CMake 3.15+
-- Recommended system: Linux/macOS with sufficient RAM and a CUDA-capable GPU for training
+- src/main.cpp — program entry; example usage / generation
+- src/util.cpp / src/util.hpp — dataset helpers, batching, matrix utilities
+- src/attentionmechanism.cpp / src/attentionmechanism.hpp — layer implementations (Linear, Dropout, Head, MultiHeadAttention, Block, etc.)
+- src/multiheadedgpt.cpp / src/multiheadedgpt.hpp — GPTLanguageModel: forward, generate, softmax, multinomial, etc.
+- CMakeLists.txt (if present) — build helper
+- .gitignore — ignores .vscode/
 
-### Installation / Build
+---
 
-I have included the executable for Microsoft WSL but if needing to build from source:
+## Requirements
 
-1. Build using CMake:
+- C++17-compatible compiler (g++ recommended)
+- OpenMP development headers for parallel builds (libomp-dev on Debian/Ubuntu) if you want threaded execution
+- CMake 3.15+ (optional)
+
+---
+
+## Build
+
+Quick single-command compile (small projects):
 
 ```bash
-git clone https://github.com/corbettmax/Multiheaded-Attention-GPT.git
-cd Multiheaded-Attention-GPT
+g++ -O3 -std=c++17 -fopenmp src/*.cpp -o main
+```
 
+With CMake (if you use the provided CMakeLists.txt):
+
+```bash
 mkdir -p build && cd build
 cmake -DCMAKE_BUILD_TYPE=Release ..
-cmake --build . --config Release -j$(nproc)
+cmake --build . -j$(nproc)
+# binary typically ./main
 ```
-
-### Training (example)
-
-Assuming a built `train` binary:
-(I Have not included a seperate binary but there is a commented-out section in main.cpp that covers it)
-
-```bash
-# basic training run
-./train \
-  --data ../data/wikitext-2.txt \
-  --epochs 10 \
-  --batch_size 32 \
-  --d_model 512 \
-  --n_heads 8 \
-  --n_layers 6 \
-  --lr 5e-4 \
-  --checkpoint_dir ../checkpoints
-```
-
-- If data preprocessing is easier in Python, you can preprocess datasets to a binary token-id format and load them in C++
-  
-## Citing / license
-
-If you use this work in research, please cite the original Transformer paper:
-
-Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A.N., Kaiser, Ł., & Polosukhin, I. (2017). Attention Is All You Need. https://arxiv.org/abs/1706.03762
-
-Check LICENSE in this repo for usage and redistribution terms.
 
 ---
 
-## References
+## Run
 
-- Attention Is All You Need — https://arxiv.org/abs/1706.03762
-- LibTorch (PyTorch C++ API) — https://pytorch.org/cppdocs/
-- SentencePiece — https://github.com/google/sentencepiece
-- "The Illustrated Transformer" — great visual intuition for attention
+After building:
+
+```bash
+./main
+```
+
+main.cpp runs a small generation example by default. Adjust globals in util.cpp (vocab size, batch_size, block_size, embedding dims) to experiment.
+
+Notes:
+- If you changed numeric types, ensure consistency between token indices (ints) and model weights/activations (doubles).
+- The code is intentionally pedagogical and not optimized for large-scale training. For production workloads use established frameworks.
+
+---
+
+## Development notes & tips
+
+- Control OpenMP threads with OMP_NUM_THREADS or omp_set_num_threads.
+- If you want to profile or visualize attention, the code paths that produce attention weights are available in the attention modules.
+- To add training you must implement backward passes and optimization steps.
+
+---
+
+## License
+
+See LICENSE in this repository for terms.
+
+---
+```// filepath: /home/maxcorbett/projects/Attention-Mechanism/README.md
+...existing code...
+# Multiheaded-Attention-GPT (C++)
+
+A compact, readable, educational implementation of a small GPT‑style transformer written in modern C++ (no LibTorch). This repository is intended for learning, profiling, and small-scale inference experiments — not production training.
+
+---
+
+## What this repository actually contains
+
+- Pure C++ implementation of Transformer components:
+  - token/position embeddings, multi‑head scaled dot‑product attention, feed‑forward, layer norm, linear layers
+  - simple utilities for batching, token encoding/decoding, and small matrix ops
+- CPU-only code using std::vector; optional OpenMP pragmas present for parallelism.
+- A forward-only model and generation routine. Backprop/optimizer (full training) is not implemented.
+- Small example entrypoint in main.cpp demonstrating model construction and generation.
+
+---
+
+## Repository structure (key files)
+
+- src/main.cpp — program entry; example usage / generation
+- src/util.cpp / src/util.hpp — dataset helpers, batching, matrix utilities
+- src/attentionmechanism.cpp / src/attentionmechanism.hpp — layer implementations (Linear, Dropout, Head, MultiHeadAttention, Block, etc.)
+- src/multiheadedgpt.cpp / src/multiheadedgpt.hpp — GPTLanguageModel: forward, generate, softmax, multinomial, etc.
+- CMakeLists.txt (if present) — build helper
+- .gitignore — ignores .vscode/
+
+---
+
+## Requirements
+
+- C++17-compatible compiler (g++ recommended)
+- OpenMP development headers for parallel builds (libomp-dev on Debian/Ubuntu) if you want threaded execution
+- CMake 3.15+ (optional)
+
+---
+
+## Build
+
+Quick single-command compile (small projects):
+
+```bash
+g++ -O3 -std=c++17 -fopenmp src/*.cpp -o main
+```
+
+With CMake (if you use the provided CMakeLists.txt):
+
+```bash
+mkdir -p build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release ..
+cmake --build . -j$(nproc)
+# binary typically ./main
+```
+
+---
+
+## Run
+
+After building:
+
+```bash
+./main
+```
+
+main.cpp runs a small generation example by default. Adjust globals in util.cpp (vocab size, batch_size, block_size, embedding dims) to experiment.
+
+Notes:
+- If you changed numeric types, ensure consistency between token indices (ints) and model weights/activations (doubles).
+- The code is intentionally pedagogical and not optimized for large-scale training. For production workloads use established frameworks.
+
+---
+
+## Development notes & tips
+
+- Control OpenMP threads with OMP_NUM_THREADS or omp_set_num_threads.
+- If you want to profile or visualize attention, the code paths that produce attention weights are available in the attention modules.
+- To add training you must implement backward passes and optimization steps.
+
+---
+
+## License
+
+Please cite the original paper if you need to reference this implementation.
+
+"Attention Is All You Need" — Ashish Vaswani et al., 2017  
+https://arxiv.org/abs/1706.03762
+
+See LICENSE in this repository for terms.
+
+---
