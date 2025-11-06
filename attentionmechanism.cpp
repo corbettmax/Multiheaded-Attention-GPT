@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <numeric>
+#include <omp.h>
 
 using namespace std;
 
@@ -17,6 +18,7 @@ vector<double> Linear::forward(const vector<double> &x)
     vector<double> output(weights.size(), 0.0);
     for (size_t i = 0; i < weights.size(); ++i)
     {
+        #pragma omp parallel for
         for (size_t j = 0; j < weights[0].size(); ++j)
         {
             output[i] += weights[i][j] * x[j];
@@ -64,6 +66,7 @@ vector<double> Dropout::forward(const vector<double> &x)
         val *= d(gen);
         val /= 1.0 - p;
     }
+    
     return output;
 }
 
@@ -71,12 +74,24 @@ Head::Head(int head_size) : key(head_size, head_size), query(head_size, head_siz
 
 vector<double> Head::forward(const vector<double> &x)
 {
-    vector<double> k = key.forward(x);
-    vector<double> q = query.forward(x);
-    vector<double> v = value.forward(x);
+    vector<double> k;
+    vector<double> q;
+    vector<double> v;
+    #pragma omp parallel sections
+    {
+        #pragma omp section
+        k = key.forward(x);
+
+        #pragma omp section
+        q = query.forward(x);
+
+        #pragma omp section
+        v = value.forward(x);
+    }
 
     double scale = 1.0 / sqrt(k.size());
     vector<double> scores(k.size(), 0.0);
+    #pragma omp parallel for
     for (size_t i = 0; i < k.size(); ++i)
     {
         scores[i] = q[i] * k[i] * scale;
@@ -132,6 +147,7 @@ vector<double> LayerNorm::forward(const vector<double> &x)
 
     double mean = accumulate(x.begin(), x.end(), 0.0) / x.size();
     double variance = 0.0;
+    #pragma omp parallel for reduction(+ : variance)
     for (const auto &val : x)
     {
         variance += (val - mean) * (val - mean);
@@ -140,12 +156,14 @@ vector<double> LayerNorm::forward(const vector<double> &x)
     double stddev = sqrt(variance + 1e-5);
 
     vector<double> normalized(x.size());
+    #pragma omp parallel for
     for (size_t i = 0; i < x.size(); ++i)
     {
         normalized[i] = (x[i] - mean) / stddev;
     }
 
     vector<double> output(x.size());
+    #pragma omp parallel
     for (size_t i = 0; i < x.size(); ++i)
     {
         output[i] = gamma[i] * normalized[i] + beta[i];
@@ -187,6 +205,7 @@ vector<double> Block::forward(const vector<double> &x)
     vector<double> x2 = ln2.forward(x1);
     vector<double> ffwd_output = ffwd.forward(x2);
     vector<double> output(x.size());
+    #pragma omp parallel for
     for (size_t i = 0; i < x.size(); ++i)
     {
         output[i] = x[i] + sa_output[i] + ffwd_output[i];

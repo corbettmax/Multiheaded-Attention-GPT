@@ -23,6 +23,7 @@ pair<vector<vector<vector<double>>>, double> GPTLanguageModel::forward(const vec
 
     vector<vector<double>> tok_emb(B, vector<double>(T, 0.0));
     // Get the embedding of the specific token
+    #pragma omp parallel for collapse(2)
     for (int i = 0; i < B; ++i)
     {
         for (int j = 0; j < T; ++j)
@@ -32,12 +33,14 @@ pair<vector<vector<vector<double>>>, double> GPTLanguageModel::forward(const vec
     }
 
     vector<vector<double>> pos_emb(T, vector<double>(n_embd));
+    #pragma omp parallel for
     for (int i = 0; i < T; ++i)
     {
         pos_emb[i] = position_embedding_table[i];
     }
 
     vector<vector<vector<double>>> x(B, vector<vector<double>>(T, vector<double>(n_embd)));
+    #pragma omp parallel for collapse(2)
     for (int i = 0; i < B; ++i)
     {
         for (int j = 0; j < T; ++j)
@@ -46,6 +49,7 @@ pair<vector<vector<vector<double>>>, double> GPTLanguageModel::forward(const vec
         }
     }
 
+    // Can't be parallelized
     for (int i = 0; i < blocks.size(); ++i)
     {
         x = blocks[i].forward(x);
@@ -84,31 +88,24 @@ vector<vector<int>> GPTLanguageModel::generate(vector<vector<int>> &idx, int max
     for (int i = 0; i < max_new_tokens; ++i)
     {
         vector<vector<int>> idx_cond;
+        #pragma omp parallel for
         for (auto &seq : idx)
         {
             idx_cond.push_back(vector<int>(seq.end() - block_size, seq.end()));
         }
         auto [logits, loss] = forward(idx_cond);
         vector<vector<double>> cropped_logits = vector<vector<double>>(logits.size(), vector<double>(logits[0].size()));
+        #pragma omp parallel for
         for (int j = 0; j < logits.size(); ++j)
         {
             cropped_logits[j] = logits[0][j];
         }
         vector<vector<double>> probs = softmax(cropped_logits);
         vector<vector<int>> idx_next = multinomial(probs, 1);
+        #pragma omp parallel for
         for (int j = 0; j < idx.size(); ++j)
         {
             idx[j].push_back(idx_next[j][0]);
-        }
-
-        // Print attention vectors 
-        double total = 0.0;
-        for (const auto &attention_vector : logits)
-        {
-            for (const auto &val : attention_vector[0])
-            {
-                total += val;
-            }
         }
 
         cout << "Generated token... " ;

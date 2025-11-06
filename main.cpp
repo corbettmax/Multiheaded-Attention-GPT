@@ -61,7 +61,7 @@ int main()
 
 
     // Generate from the model
-    vector<vector<int>> context = {{5, 6, 7, 8, 9}, {3894, 3895, 96, 300, 3898}};
+    vector<vector<int>> context = {{5, 6, 7, 8, 9}};
     vector<vector<int>> idx = gpt.generate(context, 10);
     cout << "Generated text:" << endl;
     for (auto &seq : idx)
