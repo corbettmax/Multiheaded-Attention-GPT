@@ -1,0 +1,30 @@
+Here is an example output when using full words as tokens. As you can see, it takes a long time
+
+Initialized weights
+Token embedding table: 4742 x 384
+Position embedding table: 64 x 384
+Blocks: 6
+Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token..b   ^[[D  q. Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... 
+Generated text:
+hear me speak you are crammed transported gods repeal alack often 
+transported knees masters poor usury when knees alack wouldst but alack 
+gods knees curse indeed alack often alack crammed transported pressd transported 
+transported alack superfluity crammed yes crammed usurers knees rich indeed when 
+gods encounter support transported when usurers gods alack wouldst indeed usurers 
+usurers alack alack might crammed pressd when usury masters transported support knees 
+when poor alack transported wouldst masters gods alack gods poor alack indeed alack 
+transported superfluity pressd when alack superfluity pressd rich superfluity support 
+pressd transported alack accounted superfluity transported transported alack masters 
+transported when pressd wouldst indeed rich  
+gains load be see obsequiously plead cherry woful brakenbury murderer 
+lengthend advocate hung appointed aiming conference murderer plead fright 
+dukedom unlookd murderer stern plead murderer likelihood feature smoothd cherry 
+stern mounting plead grief brakenbury advocate murderer fright brakenbury brakenbury 
+smoothd oerworn brakenbury fright cherry chamberlain oerworn brakenbury smoothd conference 
+brakenbury feature advocate chamberlain woful meaning dukedom brakenbury fright brakenbury 
+plead fright hung employ woful conference murderer aiming dukedom feature persons mounting
+gather kingdoms chamberlain aiming employ kingdoms fright plead rancorous smoothd dukedom 
+monuments advocate lengthend brakenbury herself advocate brakenbury dukedom gather feature 
+beggarly smoothd plead dukedom brakenbury oerworn advocate brakenbury likelihood unshapen 
+dukedom kingdoms chamberlain  
+Elapsed time: 1499.14 seconds

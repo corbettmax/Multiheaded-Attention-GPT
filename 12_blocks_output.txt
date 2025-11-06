@@ -1,0 +1,10 @@
+Initialized weights
+Token embedding table: 4742 x 384
+Position embedding table: 64 x 384
+Blocks: 12
+Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... Generated token... 
+Generated text:
+hear me speak you are it famish before resolved all all all all resolved we  
+gains load be see obsequiously examine lack keep else fortnight noble awe 
+feed noble held  
+Elapsed time: 264.325 seconds
