@@ -1,4 +1,3 @@
-...existing code...
 # Multiheaded-Attention-GPT (C++)
 
 A compact, readable, educational implementation of a small GPT‑style transformer written in modern C++ (no LibTorch). This repository is intended for learning, profiling, and small-scale inference experiments — not production training.
