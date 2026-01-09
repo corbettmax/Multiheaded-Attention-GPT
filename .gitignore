@@ -1,1 +1,4 @@
 .vscode/*
+.build/*
+output.txt
+attention_mechanism
