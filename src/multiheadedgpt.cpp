@@ -21,14 +21,17 @@ pair<vector<vector<vector<double>>>, double> GPTLanguageModel::forward(const vec
     int B = idx.size();
     int T = idx[0].size();
 
-    vector<vector<double>> tok_emb(B, vector<double>(T, 0.0));
+    vector<vector<vector<double>>> tok_emb(B, vector<vector<double>>(T, vector<double>(n_embd, 0.0)));
     // Get the embedding of the specific token
     #pragma omp parallel for collapse(2)
     for (int i = 0; i < B; ++i)
     {
         for (int j = 0; j < T; ++j)
         {
-            tok_emb[i][j] = token_embedding_table[0][j];
+            int token_idx = idx[i][j];
+            if (token_idx >= 0 && token_idx < vocab_size) {
+                tok_emb[i][j] = token_embedding_table[token_idx];
+            }
         }
     }
 
@@ -40,12 +43,15 @@ pair<vector<vector<vector<double>>>, double> GPTLanguageModel::forward(const vec
     }
 
     vector<vector<vector<double>>> x(B, vector<vector<double>>(T, vector<double>(n_embd)));
-    #pragma omp parallel for collapse(2)
+    #pragma omp parallel for collapse(3)
     for (int i = 0; i < B; ++i)
     {
         for (int j = 0; j < T; ++j)
         {
-            x[0][i][j] = tok_emb[i][j] + pos_emb[i][j];
+            for (int k = 0; k < n_embd; ++k)
+            {
+                x[i][j][k] = tok_emb[i][j][k] + pos_emb[j][k];
+            }
         }
     }
 
@@ -114,6 +120,105 @@ vector<vector<int>> GPTLanguageModel::generate(vector<vector<int>> &idx, int max
     return idx;
 }
 
+void GPTLanguageModel::backward(const vector<vector<int>> &idx, const vector<vector<int>> &targets, double learning_rate)
+{
+    // Initialize gradients if needed
+    if (token_embedding_grads.empty()) {
+        token_embedding_grads.resize(vocab_size, vector<double>(n_embd, 0.0));
+        position_embedding_grads.resize(block_size, vector<double>(n_embd, 0.0));
+    }
+    
+    // Zero out gradients
+    for (auto &row : token_embedding_grads) {
+        fill(row.begin(), row.end(), 0.0);
+    }
+    for (auto &row : position_embedding_grads) {
+        fill(row.begin(), row.end(), 0.0);
+    }
+    
+    // Forward pass to get logits and loss (single forward pass)
+    auto [logits, loss] = forward(idx, &targets);
+    
+    int B = idx.size();
+    int T = idx[0].size();
+    int C = vocab_size;
+    
+    // Compute softmax probabilities once for backprop
+    vector<vector<vector<double>>> probs(B, vector<vector<double>>(T, vector<double>(C, 0.0)));
+    for (int b = 0; b < B; ++b) {
+        for (int t = 0; t < T; ++t) {
+            double max_val = *max_element(logits[b][t].begin(), logits[b][t].end());
+            double sum = 0.0;
+            for (int c = 0; c < C; ++c) {
+                probs[b][t][c] = exp(logits[b][t][c] - max_val);
+                sum += probs[b][t][c];
+            }
+            for (int c = 0; c < C; ++c) {
+                probs[b][t][c] /= sum;
+            }
+        }
+    }
+    
+    // Compute gradients: pred - target (cross-entropy + softmax gradient)
+    vector<vector<vector<double>>> dlogits(B, vector<vector<double>>(T, vector<double>(C, 0.0)));
+    for (int b = 0; b < B; ++b) {
+        for (int t = 0; t < T; ++t) {
+            int target_idx = targets[b][t];
+            for (int c = 0; c < C; ++c) {
+                dlogits[b][t][c] = probs[b][t][c] / (B * T);
+            }
+            if (target_idx >= 0 && target_idx < C) {
+                dlogits[b][t][target_idx] -= 1.0 / (B * T);
+            }
+        }
+    }
+    
+    // Backprop through embeddings
+    // Simplified: update token embeddings with gradient from output
+    for (int b = 0; b < B; ++b) {
+        for (int t = 0; t < T; ++t) {
+            int token_idx = idx[b][t];
+            if (token_idx >= 0 && token_idx < vocab_size) {
+                // Accumulate gradients
+                for (int e = 0; e < n_embd; ++e) {
+                    // Approximate gradient propagation to embeddings
+                    double grad = 0.0;
+                    for (int c = 0; c < C; ++c) {
+                        grad += dlogits[b][t][c];
+                    }
+                    token_embedding_grads[token_idx][e] += grad / C;
+                }
+            }
+            
+            // Position embedding gradients
+            if (t < block_size) {
+                for (int e = 0; e < n_embd; ++e) {
+                    double grad = 0.0;
+                    for (int c = 0; c < C; ++c) {
+                        grad += dlogits[b][t][c];
+                    }
+                    position_embedding_grads[t][e] += grad / C;
+                }
+            }
+        }
+    }
+    
+    // Update embeddings with gradients
+    for (int i = 0; i < vocab_size; ++i) {
+        for (int j = 0; j < n_embd; ++j) {
+            token_embedding_table[i][j] -= learning_rate * token_embedding_grads[i][j];
+        }
+    }
+    
+    for (int i = 0; i < block_size; ++i) {
+        for (int j = 0; j < n_embd; ++j) {
+            position_embedding_table[i][j] -= learning_rate * position_embedding_grads[i][j];
+        }
+    }
+    
+    cout << "Backward pass complete. Loss: " << loss << endl;
+}
+
 void GPTLanguageModel::initialize_weights()
 {
     random_device rd;
@@ -131,8 +236,16 @@ void GPTLanguageModel::initialize_weights()
     }
 
     cout << "Initialized weights" << endl;
-    cout << "Token embedding table: " << token_embedding_table.size() << " x " << token_embedding_table[0].size() << endl;
-    cout << "Position embedding table: " << position_embedding_table.size() << " x " << position_embedding_table[0].size() << endl;
+    cout << "Token embedding table: " << token_embedding_table.size();
+    if (token_embedding_table.size() > 0) {
+        cout << " x " << token_embedding_table[0].size();
+    }
+    cout << endl;
+    cout << "Position embedding table: " << position_embedding_table.size();
+    if (position_embedding_table.size() > 0) {
+        cout << " x " << position_embedding_table[0].size();
+    }
+    cout << endl;
     cout << "Blocks: " << blocks.size() << endl;
 }
 

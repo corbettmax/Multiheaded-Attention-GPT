@@ -29,8 +29,8 @@ extern int n_layer;
 extern int dropout;
 
 extern int vocab_size;
-extern unordered_map<string, int> wordtoindex;
-extern unordered_map<int, string> indextoword;
+extern unordered_map<char, int> wordtoindex;
+extern unordered_map<int, char> indextoword;
 extern vector<vector<int>> encoded_data;
 extern vector<vector<int>> train_data;
 extern vector<vector<int>> val_data;

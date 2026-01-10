@@ -14,26 +14,26 @@ int main()
 
     auto start = chrono::high_resolution_clock::now();
 
-    string inputFilename = "../training/input.txt";
-    string outputFilename = "../output.txt";
+    string inputFilename = "training/input.txt";
+    string outputFilename = "output.txt";
     if (!fileExists(inputFilename))
     {
-        //cerr << "Error: Input file does not exist." << endl;
-        //return 1;
+        cerr << "Error: Input file does not exist." << endl;
+        return 1;
     }
     if (!fileExists(outputFilename))
     {
-        //cout << "Tokenizing text..." << endl;
-        //cleanText(inputFilename, outputFilename);
+        cout << "Tokenizing text..." << endl;
+        cleanText(inputFilename, outputFilename);
     }
 
     loadSentences(inputFilename);
-    splitDataset(encoded_data, 0.5); // 10% training, 90% testing
+    splitDataset(encoded_data, 0.5); // 50% training, 50% validation
     GPTLanguageModel gpt(vocab_size, n_embd, block_size, n_layer, n_head);
 
     // Training Loop
-    // Activate once backward function is implemented
-    /*for (int iter = 0; iter < max_iters; ++iter)
+    cout << "\nStarting training..." << endl;
+    for (int iter = 0; iter < max_iters; ++iter)
     {
         // Every once in a while evaluate the loss on train and val sets
         if (iter % eval_interval == 0 || iter == max_iters - 1)
@@ -47,17 +47,14 @@ int main()
         // Sample a batch of data
         getBatch("train", x, y);
 
-        // Evaluate the loss
-        auto logits_loss = gpt.forward(x, &y);
-        auto &logits = std::get<0>(logits_loss);
-        auto &loss = std::get<1>(logits_loss);
-        //gpt.backward(loss);
-    }*/
+        // Train: forward + backward pass
+        gpt.backward(x, y, learning_rate);
+    }
 
-    //cout << "Finished training over " << max_iters << " iterations" << endl;
-    //auto training_end = chrono::high_resolution_clock::now();
-    //chrono::duration<double> training_elapsed = training_end - start;
-    //cout << "Training elapsed time: " << training_elapsed.count() << " seconds" << endl;
+    cout << "Finished training over " << max_iters << " iterations" << endl;
+    auto training_end = chrono::high_resolution_clock::now();
+    chrono::duration<double> training_elapsed = training_end - start;
+    cout << "Training elapsed time: " << training_elapsed.count() << " seconds" << endl;
 
 
     // Generate from the model

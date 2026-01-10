@@ -16,7 +16,7 @@ public:
 
     vector<vector<int>> generate(vector<vector<int>> &idx, int max_new_tokens);
 
-    //void backwards(const vector<double>& inputs, const vector<double>& targets, double learningRate);
+    void backward(const vector<vector<int>> &idx, const vector<vector<int>> &targets, double learning_rate);
 
 private:
     int vocab_size;
@@ -27,6 +27,10 @@ private:
     vector<Block> blocks;
     LayerNorm ln_f;
     Linear lm_head;
+    
+    // Gradients
+    vector<vector<double>> token_embedding_grads;
+    vector<vector<double>> position_embedding_grads;
 
     void initialize_weights();
 

@@ -4,19 +4,18 @@ using namespace std;
 
 int batch_size = 16; // how many independent sequences will we process in parallel?
 int block_size = 64; // what is the maximum context length for predictions?
-int max_iters = 1;
-int eval_interval = 10;
-double learning_rate = 0.01;
+int max_iters = 20;
+int eval_interval = 20; // Evaluate loss less frequently to speed up training
+double learning_rate = 0.001;
 string device = "cpu";
-int eval_iters = 10;
-int n_embd = 384;
-int n_head = 6;
-int n_layer = 6;
+int n_embd = 128; // embedding dimension - size of the feature vector for each token
+int n_head = 6; // number of attention heads in multi-head attention
+int n_layer = 3; // number of transformer blocks (layers) in the model
 int dropout = 0.2;
 
 int vocab_size;
-unordered_map<string, int> wordtoindex;
-unordered_map<int, string> indextoword;
+unordered_map<char, int> wordtoindex;
+unordered_map<int, char> indextoword;
 vector<vector<int>> encoded_data;
 vector<vector<int>> train_data; // Placeholder for training data
 vector<vector<int>> val_data; // Placeholder for validation data
@@ -26,7 +25,9 @@ vector<vector<int>> wordEmbeddings; // Placeholder for word embeddings
 string decode(const vector<int> &l) {
     string decoded;
     for (int i : l) {
-        decoded += indextoword[i] + " ";
+        if (indextoword.find(i) != indextoword.end()) {
+            decoded += indextoword[i];
+        }
     }
     return decoded;
 }
@@ -34,10 +35,10 @@ string decode(const vector<int> &l) {
 // Function to encode a string to a list of ints
 vector<int> encode(const string &s) {
     vector<int> encoded;
-    istringstream iss(s);
-    string word;
-    while (iss >> word) {
-        encoded.push_back(wordtoindex[word]);
+    for (char c : s) {
+        if (wordtoindex.find(c) != wordtoindex.end()) {
+            encoded.push_back(wordtoindex[c]);
+        }
     }
     return encoded;
 }
@@ -46,26 +47,45 @@ vector<int> encode(const string &s) {
 void loadSentences(const string &filename) {
     vector<string> sentences;
     ifstream file(filename);
+    if (!file.is_open()) {
+        cerr << "Error: Could not open file " << filename << endl;
+        return;
+    }
+    
     string line, lowercaseline;
 
     while (getline(file, line)) {
         line.erase(line.find_last_not_of(" \n\r\t")+1);
         sentences.push_back(line);
     }
+    file.close();
+    
+    cout << "Loaded " << sentences.size() << " sentences" << endl;
 
+    // First pass: build character vocabulary
     for (const auto& sentence : sentences) {
-        istringstream iss(sentence);
-        string word;
-        while (iss >> word) {
-            if (wordtoindex.find(word) == wordtoindex.end()) {
+        for (char c : sentence) {
+            if (wordtoindex.find(c) == wordtoindex.end()) {
                 int index = wordtoindex.size();
-                wordtoindex[word] = index;
-                indextoword[index] = word;
-                encoded_data.push_back(encode(word));
+                wordtoindex[c] = index;
+                indextoword[index] = c;
             }
         }
     }
     vocab_size = wordtoindex.size();
+    cout << "Built vocabulary with " << vocab_size << " characters" << endl;
+    
+    // Second pass: encode all sentences
+    for (const auto& sentence : sentences) {
+        vector<int> encoded = encode(sentence);
+        encoded_data.push_back(encoded);
+    }
+    
+    cout << "Vocabulary size: " << vocab_size << endl;
+    cout << "Encoded data size: " << encoded_data.size() << endl;
+    if (encoded_data.size() > 0) {
+        cout << "First encoded sentence size: " << encoded_data[0].size() << endl;
+    }
 
 }
 
@@ -154,7 +174,7 @@ void getBatch(const string &split, vector<vector<int>> &x, vector<vector<int>> &
 // Function to estimate loss
 unordered_map<string, double> estimateLoss(GPTLanguageModel &model) {
     unordered_map<string, double> out;
-    int eval_iters = 10; // Example evaluation iterations
+    int eval_iters = 2; // Reduced from 10 to speed up evaluation
     for (const string &split : {"train", "val"}) {
         double total_loss = 0.0;
         for (int k = 0; k < eval_iters; ++k) {
