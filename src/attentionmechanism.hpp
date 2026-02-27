@@ -34,12 +34,14 @@ class Head
 public:
     Head(int head_size);
     vector<double> forward(const vector<double> &x);
+    vector<vector<vector<double>>> forward(const vector<vector<vector<double>>> &x);
 
 private:
     Linear key;
     Linear query;
     Linear value;
     Dropout dropout;
+    int head_size;
 };
 
 class MultiHeadAttention
@@ -47,10 +49,12 @@ class MultiHeadAttention
 public:
     MultiHeadAttention(int n_head, int head_size);
     vector<double> forward(const vector<double> &x);
+    vector<vector<vector<double>>> forward(const vector<vector<vector<double>>> &x);
 
 private:
     vector<Head> heads;
     Linear output_linear;
+    Dropout dropout;
 };
 
 class LayerNorm
@@ -71,10 +75,12 @@ class FeedForward
 public:
     FeedForward(int n_embd);
     vector<double> forward(const vector<double> &x);
+    vector<vector<vector<double>>> forward(const vector<vector<vector<double>>> &x);
 
 private:
     Linear linear1;
     Linear linear2;
+    Dropout dropout;
 };
 
 class Block

@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <fstream>
+#include <sstream>
 
 using namespace std;
 
@@ -21,42 +23,43 @@ pair<vector<vector<vector<double>>>, double> GPTLanguageModel::forward(const vec
     int B = idx.size();
     int T = idx[0].size();
 
+    // Get token embeddings - optimized with parallel access
     vector<vector<vector<double>>> tok_emb(B, vector<vector<double>>(T, vector<double>(n_embd, 0.0)));
-    // Get the embedding of the specific token
-    #pragma omp parallel for collapse(2)
+    #pragma omp parallel for collapse(2) schedule(static)
     for (int i = 0; i < B; ++i)
     {
         for (int j = 0; j < T; ++j)
         {
             int token_idx = idx[i][j];
             if (token_idx >= 0 && token_idx < vocab_size) {
-                tok_emb[i][j] = token_embedding_table[token_idx];
+                // Direct memory copy is faster than element-wise
+                const vector<double>& embedding = token_embedding_table[token_idx];
+                #pragma omp simd
+                for (int k = 0; k < n_embd; ++k) {
+                    tok_emb[i][j][k] = embedding[k];
+                }
             }
         }
     }
 
-    vector<vector<double>> pos_emb(T, vector<double>(n_embd));
-    #pragma omp parallel for
-    for (int i = 0; i < T; ++i)
-    {
-        pos_emb[i] = position_embedding_table[i];
-    }
-
+    // Add position embeddings - optimized
     vector<vector<vector<double>>> x(B, vector<vector<double>>(T, vector<double>(n_embd)));
-    #pragma omp parallel for collapse(3)
+    #pragma omp parallel for collapse(2) schedule(static)
     for (int i = 0; i < B; ++i)
     {
         for (int j = 0; j < T; ++j)
         {
+            const vector<double>& pos_emb = position_embedding_table[j];
+            #pragma omp simd
             for (int k = 0; k < n_embd; ++k)
             {
-                x[i][j][k] = tok_emb[i][j][k] + pos_emb[j][k];
+                x[i][j][k] = tok_emb[i][j][k] + pos_emb[k];
             }
         }
     }
 
-    // Can't be parallelized
-    for (int i = 0; i < blocks.size(); ++i)
+    // Forward through transformer blocks
+    for (size_t i = 0; i < blocks.size(); ++i)
     {
         x = blocks[i].forward(x);
     }
@@ -93,23 +96,29 @@ vector<vector<int>> GPTLanguageModel::generate(vector<vector<int>> &idx, int max
 {
     for (int i = 0; i < max_new_tokens; ++i)
     {
+        // Crop to block_size - FIXED: no race condition
         vector<vector<int>> idx_cond;
-        #pragma omp parallel for
-        for (auto &seq : idx)
+        idx_cond.reserve(idx.size());
+        for (const auto &seq : idx)
         {
-            idx_cond.push_back(vector<int>(seq.end() - block_size, seq.end()));
+            int start_pos = max(0, (int)seq.size() - block_size);
+            idx_cond.push_back(vector<int>(seq.begin() + start_pos, seq.end()));
         }
+        
         auto [logits, loss] = forward(idx_cond);
-        vector<vector<double>> cropped_logits = vector<vector<double>>(logits.size(), vector<double>(logits[0].size()));
-        #pragma omp parallel for
-        for (int j = 0; j < logits.size(); ++j)
+        
+        // Get logits for last position
+        vector<vector<double>> last_logits(logits.size(), vector<double>(logits[0][0].size()));
+        for (size_t j = 0; j < logits.size(); ++j)
         {
-            cropped_logits[j] = logits[0][j];
+            int last_t = logits[j].size() - 1;
+            last_logits[j] = logits[j][last_t];
         }
-        vector<vector<double>> probs = softmax(cropped_logits);
+        
+        vector<vector<double>> probs = softmax(last_logits);
         vector<vector<int>> idx_next = multinomial(probs, 1);
-        #pragma omp parallel for
-        for (int j = 0; j < idx.size(); ++j)
+        
+        for (size_t j = 0; j < idx.size(); ++j)
         {
             idx[j].push_back(idx_next[j][0]);
         }
@@ -219,6 +228,123 @@ void GPTLanguageModel::backward(const vector<vector<int>> &idx, const vector<vec
     cout << "Backward pass complete. Loss: " << loss << endl;
 }
 
+void GPTLanguageModel::save_model(const string &filename)
+{
+    ofstream file(filename);
+    if (!file.is_open()) {
+        cerr << "Error: Could not open file " << filename << " for writing" << endl;
+        return;
+    }
+    
+    file << "{\n";
+    
+    // Save token embeddings
+    file << "  \"token_embedding_table\": [\n";
+    for (size_t i = 0; i < token_embedding_table.size(); ++i) {
+        file << "    [";
+        for (size_t j = 0; j < token_embedding_table[i].size(); ++j) {
+            file << token_embedding_table[i][j];
+            if (j < token_embedding_table[i].size() - 1) file << ", ";
+        }
+        file << "]";
+        if (i < token_embedding_table.size() - 1) file << ",";
+        file << "\n";
+    }
+    file << "  ],\n";
+    
+    // Save position embeddings
+    file << "  \"position_embedding_table\": [\n";
+    for (size_t i = 0; i < position_embedding_table.size(); ++i) {
+        file << "    [";
+        for (size_t j = 0; j < position_embedding_table[i].size(); ++j) {
+            file << position_embedding_table[i][j];
+            if (j < position_embedding_table[i].size() - 1) file << ", ";
+        }
+        file << "]";
+        if (i < position_embedding_table.size() - 1) file << ",";
+        file << "\n";
+    }
+    file << "  ],\n";
+    
+    // Save other model parameters
+    file << "  \"hyperparameters\": {\n";
+    file << "    \"vocab_size\": " << vocab_size << ",\n";
+    file << "    \"n_embd\": " << n_embd << ",\n";
+    file << "    \"block_size\": " << block_size << "\n";
+    file << "  }\n";
+    
+    file << "}\n";
+    
+    file.close();
+    cout << "Model saved to " << filename << endl;
+}
+
+bool GPTLanguageModel::load_model(const string &filename)
+{
+    ifstream file(filename);
+    if (!file.is_open()) {
+        cerr << "Error: Could not open file " << filename << " for reading" << endl;
+        return false;
+    }
+    
+    string line;
+    bool in_token_embeddings = false;
+    bool in_position_embeddings = false;
+    int row_idx = 0;
+    
+    while (getline(file, line)) {
+        // Skip empty lines and braces
+        if (line.find("token_embedding_table") != string::npos) {
+            in_token_embeddings = true;
+            in_position_embeddings = false;
+            row_idx = 0;
+            continue;
+        }
+        if (line.find("position_embedding_table") != string::npos) {
+            in_token_embeddings = false;
+            in_position_embeddings = true;
+            row_idx = 0;
+            continue;
+        }
+        if (line.find("hyperparameters") != string::npos) {
+            break;
+        }
+        
+        // Parse array rows
+        size_t start = line.find('[');
+        size_t end = line.rfind(']');
+        if (start != string::npos && end != string::npos && end > start) {
+            string numbers = line.substr(start + 1, end - start - 1);
+            vector<double> row;
+            stringstream ss(numbers);
+            string num;
+            
+            while (getline(ss, num, ',')) {
+                // Trim whitespace
+                num.erase(0, num.find_first_not_of(" \t"));
+                num.erase(num.find_last_not_of(" \t") + 1);
+                if (!num.empty()) {
+                    row.push_back(stod(num));
+                }
+            }
+            
+            if (!row.empty()) {
+                if (in_token_embeddings && row_idx < token_embedding_table.size()) {
+                    token_embedding_table[row_idx] = row;
+                    row_idx++;
+                } else if (in_position_embeddings && row_idx < position_embedding_table.size()) {
+                    position_embedding_table[row_idx] = row;
+                    row_idx++;
+                }
+            }
+        }
+    }
+    
+    file.close();
+    cout << "Model loaded from " << filename << endl;
+    return true;
+}
+
 void GPTLanguageModel::initialize_weights()
 {
     random_device rd;
@@ -265,21 +391,21 @@ double GPTLanguageModel::cross_entropy(const vector<double> &logits, const vecto
 vector<vector<double>> GPTLanguageModel::softmax(const vector<vector<double>> &logits)
 {
     vector<vector<double>> probs(logits.size(), vector<double>(logits[0].size(), 0.0));
-    for (int i = 0; i < logits.size(); ++i)
+    for (size_t i = 0; i < logits.size(); ++i)
     {
         double max_val = *max_element(logits[i].begin(), logits[i].end());
         double sum = 0.0;
-        for (int j = 0; j < logits[0].size(); ++j)
+        for (size_t j = 0; j < logits[i].size(); ++j)
         {
             probs[i][j] = exp(logits[i][j] - max_val);
             sum += probs[i][j];
         }
-        for (int j = 0; j < logits[0].size(); ++j)
+        for (size_t j = 0; j < logits[i].size(); ++j)
         {
             probs[i][j] /= sum;
         }
     }
-    return logits;
+    return probs; // FIXED: return probs instead of logits
 }
 
 vector<vector<int>> GPTLanguageModel::multinomial(const vector<vector<double>> &probs, int num_samples)

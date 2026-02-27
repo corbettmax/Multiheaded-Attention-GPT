@@ -31,8 +31,24 @@ int main()
     splitDataset(encoded_data, 0.5); // 50% training, 50% validation
     GPTLanguageModel gpt(vocab_size, n_embd, block_size, n_layer, n_head);
 
+    // Try to load existing model
+    string model_file = "model_weights.json";
+    bool skip_training = false;
+    if (fileExists(model_file)) {
+        cout << "Found existing model file. Load it? (y/n): ";
+        char choice;
+        cin >> choice;
+        if (choice == 'y' || choice == 'Y') {
+            if (gpt.load_model(model_file)) {
+                skip_training = true;
+                cout << "Model loaded successfully. Skipping training." << endl;
+            }
+        }
+    }
+
     // Training Loop
-    cout << "\nStarting training..." << endl;
+    if (!skip_training) {
+        cout << "\nStarting training..." << endl;
     for (int iter = 0; iter < max_iters; ++iter)
     {
         // Every once in a while evaluate the loss on train and val sets
@@ -56,6 +72,9 @@ int main()
     chrono::duration<double> training_elapsed = training_end - start;
     cout << "Training elapsed time: " << training_elapsed.count() << " seconds" << endl;
 
+    // Save trained model
+    gpt.save_model("model_weights.json");
+    }
 
     // Generate from the model
     vector<vector<int>> context = {{5, 6, 7, 8, 9}};

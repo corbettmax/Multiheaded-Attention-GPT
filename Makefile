@@ -1,7 +1,7 @@
 # Compiler and flags
 CXX = g++
-CXXFLAGS = -Wall -Wextra -g -fopenmp
-LDFLAGS =
+CXXFLAGS = -Wall -Wextra -O3 -march=native -ffast-math -fopenmp -ftree-vectorize
+LDFLAGS = -fopenmp
 
 # Directories
 SRC_DIR = src

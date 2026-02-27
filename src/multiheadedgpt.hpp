@@ -18,6 +18,10 @@ public:
 
     void backward(const vector<vector<int>> &idx, const vector<vector<int>> &targets, double learning_rate);
 
+    void save_model(const string &filename);
+    
+    bool load_model(const string &filename);
+
 private:
     int vocab_size;
     int n_embd;
